@@ -41,6 +41,13 @@
   "recordings": {
     "documentTitle": "Recordings - Frigate"
   },
+  "playback": {
+    "label": "Playback",
+    "options": {
+      "realtime": "Realtime",
+      "timelapse_25x": "Timelapse (25x)"
+    }
+  },
   "calendarFilter": {
     "last24Hours": "Last 24 Hours"
   },
