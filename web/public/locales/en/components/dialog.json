@@ -48,6 +48,13 @@
     "name": {
       "placeholder": "Name the Export"
     },
+    "playback": {
+      "title": "Playback",
+      "realtime": "Real-time",
+      "timelapse": "Time-lapse",
+      "timelapseSpeed": "Time-lapse speed",
+      "fps": "Frames per second"
+    },
     "select": "Select",
     "export": "Export",
     "selectOrExport": "Select or Export",

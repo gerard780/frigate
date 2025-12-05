@@ -533,7 +533,11 @@ record:
     # from 86400 seconds to 1800 seconds which would be 1800 / 86400 = 0.02.
     # The -r (framerate) dictates how smooth the output video is.
     # So the args would be -vf setpts=0.02*PTS -r 30 in that case.
-    timelapse_args: "-vf setpts=0.04*PTS -r 30"
+    # {speed} and {fps} placeholders will be replaced with the chosen timelapse speed and
+    # configured timelapse fps.
+    timelapse_args: "-vf setpts=PTS/{speed} -r {fps}"
+    # Optional: Default frame rate used for time-lapse exports when not overridden via API/UI.
+    timelapse_fps: 30
   # Optional: Recording Preview Settings
   preview:
     # Optional: Quality of recording preview (default: shown below).

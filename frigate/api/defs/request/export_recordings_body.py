@@ -18,3 +18,6 @@ class ExportRecordingsBody(BaseModel):
     )
     name: str = Field(title="Friendly name", default=None, max_length=256)
     image_path: Union[str, SkipJsonSchema[None]] = None
+    fps: Union[int, SkipJsonSchema[None]] = Field(
+        default=None, title="Frames per second", ge=1, le=240
+    )

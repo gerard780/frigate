@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +22,14 @@ import useSWR from "swr";
 import { FrigateConfig } from "@/types/frigateConfig";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { TimezoneAwareCalendar } from "./ReviewActivityCalendar";
-import { SelectSeparator } from "../ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import { isDesktop, isIOS, isMobile } from "react-device-detect";
 import { Drawer, DrawerContent, DrawerTrigger } from "../ui/drawer";
 import SaveExportOverlay from "./SaveExportOverlay";
@@ -42,6 +49,19 @@ const EXPORT_OPTIONS = [
   "custom",
 ] as const;
 type ExportOption = (typeof EXPORT_OPTIONS)[number];
+type PlaybackOption =
+  | "realtime"
+  | "timelapse_10x"
+  | "timelapse_25x"
+  | "timelapse_50x"
+  | "timelapse_100x";
+
+const TIMELAPSE_OPTIONS: { value: PlaybackOption; speed: string }[] = [
+  { value: "timelapse_10x", speed: "10x" },
+  { value: "timelapse_25x", speed: "25x" },
+  { value: "timelapse_50x", speed: "50x" },
+  { value: "timelapse_100x", speed: "100x" },
+];
 
 type ExportDialogProps = {
   camera: string;
@@ -67,6 +87,15 @@ export default function ExportDialog({
 }: ExportDialogProps) {
   const { t } = useTranslation(["components/dialog"]);
   const [name, setName] = useState("");
+  const [playback, setPlayback] = useState<PlaybackOption>("realtime");
+  const [timelapseFps, setTimelapseFps] = useState<number>(30);
+  const { data: config } = useSWR<FrigateConfig>("config");
+
+  useEffect(() => {
+    if (config?.record?.export?.timelapse_fps) {
+      setTimelapseFps(config.record.export.timelapse_fps);
+    }
+  }, [config?.record?.export?.timelapse_fps]);
 
   const onStartExport = useCallback(() => {
     if (!range) {
@@ -83,13 +112,26 @@ export default function ExportDialog({
       return;
     }
 
+    if (playback !== "realtime" && (!timelapseFps || timelapseFps < 1)) {
+      toast.error(t("export.toast.error.noVaildTimeSelected"), {
+        position: "top-center",
+      });
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      playback,
+      name,
+    };
+
+    if (playback !== "realtime") {
+      payload.fps = timelapseFps;
+    }
+
     axios
       .post(
         `export/${camera}/start/${Math.round(range.after)}/end/${Math.round(range.before)}`,
-        {
-          playback: "realtime",
-          name,
-        },
+        payload,
       )
       .then((response) => {
         if (response.status == 200) {
@@ -118,7 +160,7 @@ export default function ExportDialog({
           { position: "top-center" },
         );
       });
-  }, [camera, name, range, setRange, setName, setMode, t]);
+  }, [camera, name, playback, range, setMode, setRange, t, timelapseFps]);
 
   const handleCancel = useCallback(() => {
     setName("");
@@ -190,8 +232,12 @@ export default function ExportDialog({
             currentTime={currentTime}
             range={range}
             name={name}
+            playback={playback}
+            timelapseFps={timelapseFps}
             onStartExport={onStartExport}
             setName={setName}
+            setPlayback={setPlayback}
+            setTimelapseFps={setTimelapseFps}
             setRange={setRange}
             setMode={setMode}
             onCancel={handleCancel}
@@ -207,8 +253,12 @@ type ExportContentProps = {
   currentTime: number;
   range?: TimeRange;
   name: string;
+  playback: PlaybackOption;
+  timelapseFps: number;
   onStartExport: () => void;
   setName: (name: string) => void;
+  setPlayback: (playback: PlaybackOption) => void;
+  setTimelapseFps: (fps: number) => void;
   setRange: (range: TimeRange | undefined) => void;
   setMode: (mode: ExportMode) => void;
   onCancel: () => void;
@@ -218,8 +268,12 @@ export function ExportContent({
   currentTime,
   range,
   name,
+  playback,
+  timelapseFps,
   onStartExport,
   setName,
+  setPlayback,
+  setTimelapseFps,
   setRange,
   setMode,
   onCancel,
@@ -320,6 +374,54 @@ export function ExportContent({
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
+      <div className="space-y-2">
+        <Label className="text-sm font-semibold">
+          {t("export.playback.title")}
+        </Label>
+        <Select
+          value={playback}
+          onValueChange={(value) => setPlayback(value as PlaybackOption)}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue
+              placeholder={t("export.playback.realtime")}
+              className="capitalize"
+            />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="realtime">
+              {t("export.playback.realtime")}
+            </SelectItem>
+            <SelectSeparator />
+            <div className="px-2 pb-1 pt-1 text-xs font-semibold uppercase text-muted-foreground">
+              {t("export.playback.timelapse")}
+            </div>
+            {TIMELAPSE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {t("export.playback.timelapseSpeed")} ({option.speed})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {playback !== "realtime" && (
+          <div className="flex items-center gap-3">
+            <Label className="whitespace-nowrap">
+              {t("export.playback.fps")}
+            </Label>
+            <Input
+              className="w-24"
+              type="number"
+              min={1}
+              max={240}
+              value={timelapseFps}
+              onChange={(e) => {
+                const nextValue = parseInt(e.target.value, 10);
+                setTimelapseFps(Number.isNaN(nextValue) ? 0 : nextValue);
+              }}
+            />
+          </div>
+        )}
+      </div>
       {isDesktop && <SelectSeparator className="my-4 bg-secondary" />}
       <DialogFooter
         className={isDesktop ? "" : "mt-3 flex flex-col-reverse gap-4"}

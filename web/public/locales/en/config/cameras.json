@@ -395,6 +395,9 @@
           "properties": {
             "timelapse_args": {
               "label": "Timelapse Args"
+            },
+            "timelapse_fps": {
+              "label": "Timelapse FPS"
             }
           }
         },

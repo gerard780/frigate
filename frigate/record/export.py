@@ -42,7 +42,18 @@ def lower_priority():
 
 class PlaybackFactorEnum(str, Enum):
     realtime = "realtime"
+    timelapse_10x = "timelapse_10x"
     timelapse_25x = "timelapse_25x"
+    timelapse_50x = "timelapse_50x"
+    timelapse_100x = "timelapse_100x"
+
+
+TIMELAPSE_SPEED_MAP = {
+    PlaybackFactorEnum.timelapse_10x: 10,
+    PlaybackFactorEnum.timelapse_25x: 25,
+    PlaybackFactorEnum.timelapse_50x: 50,
+    PlaybackFactorEnum.timelapse_100x: 100,
+}
 
 
 class PlaybackSourceEnum(str, Enum):
@@ -64,6 +75,7 @@ class RecordingExporter(threading.Thread):
         end_time: int,
         playback_factor: PlaybackFactorEnum,
         playback_source: PlaybackSourceEnum,
+        timelapse_fps: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.config = config
@@ -75,6 +87,7 @@ class RecordingExporter(threading.Thread):
         self.end_time = end_time
         self.playback_factor = playback_factor
         self.playback_source = playback_source
+        self.timelapse_fps = timelapse_fps
 
         # ensure export thumb dir
         Path(os.path.join(CLIPS_DIR, "export")).mkdir(exist_ok=True)
@@ -179,6 +192,23 @@ class RecordingExporter(threading.Thread):
 
         return thumb_path
 
+    def _get_timelapse_args(self) -> str:
+        speed = TIMELAPSE_SPEED_MAP.get(self.playback_factor, 25)
+        fps = max(
+            self.timelapse_fps
+            or self.config.cameras[self.camera].record.export.timelapse_fps,
+            1,
+        )
+        args_template = self.config.cameras[self.camera].record.export.timelapse_args
+
+        if "{speed}" in args_template or "{fps}" in args_template:
+            return args_template.format(speed=speed, fps=fps)
+
+        if self.playback_factor != PlaybackFactorEnum.timelapse_25x:
+            return f"-vf setpts=PTS/{speed} -r {fps}"
+
+        return args_template
+
     def get_record_export_command(self, video_path: str) -> list[str]:
         if (self.end_time - self.start_time) <= MAX_PLAYLIST_SECONDS:
             playlist_lines = f"http://127.0.0.1:5000/vod/{self.camera}/start/{self.start_time}/end/{self.end_time}/index.m3u8"
@@ -222,13 +252,13 @@ class RecordingExporter(threading.Thread):
             ffmpeg_cmd = (
                 f"{self.config.ffmpeg.ffmpeg_path} -hide_banner {ffmpeg_input} -c copy -movflags +faststart"
             ).split(" ")
-        elif self.playback_factor == PlaybackFactorEnum.timelapse_25x:
+        elif self.playback_factor in TIMELAPSE_SPEED_MAP:
             ffmpeg_cmd = (
                 parse_preset_hardware_acceleration_encode(
                     self.config.ffmpeg.ffmpeg_path,
                     self.config.ffmpeg.hwaccel_args,
                     f"-an {ffmpeg_input}",
-                    f"{self.config.cameras[self.camera].record.export.timelapse_args} -movflags +faststart",
+                    f"{self._get_timelapse_args()} -movflags +faststart",
                     EncodeTypeEnum.timelapse,
                 )
             ).split(" ")
@@ -313,13 +343,13 @@ class RecordingExporter(threading.Thread):
             ffmpeg_cmd = (
                 f"{self.config.ffmpeg.ffmpeg_path} -hide_banner {ffmpeg_input} {codec} -movflags +faststart {video_path}"
             ).split(" ")
-        elif self.playback_factor == PlaybackFactorEnum.timelapse_25x:
+        elif self.playback_factor in TIMELAPSE_SPEED_MAP:
             ffmpeg_cmd = (
                 parse_preset_hardware_acceleration_encode(
                     self.config.ffmpeg.ffmpeg_path,
                     self.config.ffmpeg.hwaccel_args,
                     f"{TIMELAPSE_DATA_INPUT_ARGS} {ffmpeg_input}",
-                    f"{self.config.cameras[self.camera].record.export.timelapse_args} -movflags +faststart {video_path}",
+                    f"{self._get_timelapse_args()} -movflags +faststart {video_path}",
                     EncodeTypeEnum.timelapse,
                 )
             ).split(" ")

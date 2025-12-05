@@ -92,6 +92,7 @@ def export_recording(
     playback_source = body.source
     friendly_name = body.name
     existing_image = sanitize_filepath(body.image_path) if body.image_path else None
+    timelapse_fps = body.fps
 
     # Ensure that existing_image is a valid path
     if existing_image and not existing_image.startswith(CLIPS_DIR):
@@ -161,6 +162,7 @@ def export_recording(
             if playback_source in PlaybackSourceEnum.__members__.values()
             else PlaybackSourceEnum.recordings
         ),
+        timelapse_fps,
     )
     exporter.start()
     return JSONResponse(

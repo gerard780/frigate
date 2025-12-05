@@ -4925,6 +4925,11 @@ components:
         image_path:
           type: string
           title: Image Path
+        fps:
+          type: integer
+          title: Frames per second
+          minimum: 1
+          maximum: 240
       type: object
       title: ExportRecordingsBody
     ExportRenameBody:
@@ -5039,7 +5044,10 @@ components:
       type: string
       enum:
         - realtime
+        - timelapse_10x
         - timelapse_25x
+        - timelapse_50x
+        - timelapse_100x
       title: PlaybackFactorEnum
     PlaybackSourceEnum:
       type: string

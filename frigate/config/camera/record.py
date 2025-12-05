@@ -19,7 +19,7 @@ __all__ = [
     "RetainModeEnum",
 ]
 
-DEFAULT_TIME_LAPSE_FFMPEG_ARGS = "-vf setpts=0.04*PTS -r 30"
+DEFAULT_TIME_LAPSE_FFMPEG_ARGS = "-vf setpts=PTS/{speed} -r {fps}"
 
 
 class RecordRetainConfig(FrigateBaseModel):
@@ -70,6 +70,7 @@ class RecordExportConfig(FrigateBaseModel):
     timelapse_args: str = Field(
         default=DEFAULT_TIME_LAPSE_FFMPEG_ARGS, title="Timelapse Args"
     )
+    timelapse_fps: int = Field(default=30, ge=1, le=240, title="Timelapse FPS")
 
 
 class RecordConfig(FrigateBaseModel):
