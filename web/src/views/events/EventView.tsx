@@ -9,6 +9,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useTimelineUtils } from "@/hooks/use-timeline-utils";
 import { useScrollLockout } from "@/hooks/use-mouse-listener";
 import { FrigateConfig } from "@/types/frigateConfig";
+import { PlaybackFactor } from "@/types/export";
 import { Preview } from "@/types/preview";
 import {
   MotionData,
@@ -135,6 +136,8 @@ export default function EventView({
   // review interaction
 
   const [selectedReviews, setSelectedReviews] = useState<ReviewSegment[]>([]);
+  const [exportPlayback, setExportPlayback] =
+    useState<PlaybackFactor>("realtime");
   const onSelectReview = useCallback(
     (review: ReviewSegment, ctrl: boolean, detail: boolean) => {
       if (selectedReviews.length > 0 || ctrl) {
@@ -209,7 +212,7 @@ export default function EventView({
       axios
         .post(
           `export/${review.camera}/start/${review.start_time - REVIEW_PADDING}/end/${endTime}`,
-          { playback: "realtime", image_path: review.thumb_path },
+          { playback: exportPlayback, image_path: review.thumb_path },
         )
         .then((response) => {
           if (response.status == 200) {
@@ -244,7 +247,7 @@ export default function EventView({
           );
         });
     },
-    [reviewItems, t],
+    [exportPlayback, reviewItems, t],
   );
 
   const [motionOnly, setMotionOnly] = useState(false);
@@ -392,6 +395,8 @@ export default function EventView({
           <ReviewActionGroup
             selectedReviews={selectedReviews}
             setSelectedReviews={setSelectedReviews}
+            exportPlayback={exportPlayback}
+            setExportPlayback={setExportPlayback}
             onExport={exportReview}
             pullLatestData={pullLatestData}
           />

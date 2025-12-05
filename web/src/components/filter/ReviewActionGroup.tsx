@@ -1,11 +1,12 @@
 import { FaCircleCheck, FaCircleXmark } from "react-icons/fa6";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import axios from "axios";
 import { Button, buttonVariants } from "../ui/button";
 import { isDesktop } from "react-device-detect";
 import { FaCompactDisc } from "react-icons/fa";
 import { HiTrash } from "react-icons/hi";
 import { ReviewSegment } from "@/types/review";
+import { PlaybackFactor } from "@/types/export";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,23 +20,49 @@ import {
 import useKeyboardListener from "@/hooks/use-keyboard-listener";
 import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Label } from "../ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 type ReviewActionGroupProps = {
   selectedReviews: ReviewSegment[];
   setSelectedReviews: (reviews: ReviewSegment[]) => void;
+  exportPlayback: PlaybackFactor;
+  setExportPlayback: (value: PlaybackFactor) => void;
   onExport: (id: string) => void;
   pullLatestData: () => void;
 };
 export default function ReviewActionGroup({
   selectedReviews,
   setSelectedReviews,
+  exportPlayback,
+  setExportPlayback,
   onExport,
   pullLatestData,
 }: ReviewActionGroupProps) {
-  const { t } = useTranslation(["components/dialog"]);
+  const { t } = useTranslation(["components/dialog", "views/events"]);
   const onClearSelected = useCallback(() => {
     setSelectedReviews([]);
   }, [setSelectedReviews]);
+
+  const playbackOptions = useMemo(
+    () => [
+      {
+        value: "realtime" as PlaybackFactor,
+        label: t("playback.options.realtime", { ns: "views/events" }),
+      },
+      {
+        value: "timelapse_25x" as PlaybackFactor,
+        label: t("playback.options.timelapse_25x", { ns: "views/events" }),
+      },
+    ],
+    [t],
+  );
 
   const allReviewed = selectedReviews.every(
     (review) => review.has_been_reviewed,
@@ -144,6 +171,33 @@ export default function ReviewActionGroup({
           </div>
         </div>
         <div className="flex items-center gap-1 md:gap-2">
+          {selectedReviews.length == 1 && (
+            <div className="flex items-center gap-2">
+              <Label
+                htmlFor="playback"
+                className="hidden whitespace-nowrap text-xs text-muted-foreground md:block"
+              >
+                {t("playback.label", { ns: "views/events" })}
+              </Label>
+              <Select
+                value={exportPlayback}
+                onValueChange={(value) =>
+                  setExportPlayback(value as PlaybackFactor)
+                }
+              >
+                <SelectTrigger id="playback" className="h-9 w-[150px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {playbackOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {selectedReviews.length == 1 && (
             <Button
               className="flex items-center gap-2 p-2"

@@ -12,3 +12,5 @@ export type DeleteClipType = {
   file: string;
   exportName: string;
 };
+
+export type PlaybackFactor = "realtime" | "timelapse_25x";
