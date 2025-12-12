@@ -13,6 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Select,
   SelectContent,
@@ -29,10 +32,12 @@ import { FrigateConfig } from "@/types/frigateConfig";
 import axios from "axios";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Hls from "hls.js";
+import { LuChevronDown, LuClock3, LuFolderX } from "react-icons/lu";
 import { isMobile } from "react-device-detect";
 import { useTranslation } from "react-i18next";
 
-import { LuFolderX } from "react-icons/lu";
+import { format } from "date-fns";
 import { toast } from "sonner";
 import useSWR from "swr";
 
@@ -43,6 +48,91 @@ const toLocalInput = (date: Date) =>
 
 const toEpochSeconds = (value: string) =>
   value ? Math.round(new Date(value).getTime() / 1000) : NaN;
+
+const formatDisplayDateTime = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return format(date, "PP p");
+};
+
+type DateTimePickerProps = {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  max?: string;
+  min?: string;
+};
+
+const DateTimePicker = ({ id, label, value, onChange, max, min }: DateTimePickerProps) => {
+  const selectedDate = value ? new Date(value) : new Date();
+
+  const handleDateSelect = (date?: Date) => {
+    if (!date) return;
+    const updated = new Date(date);
+    updated.setHours(selectedDate.getHours(), selectedDate.getMinutes(), 0, 0);
+    onChange(toLocalInput(updated));
+  };
+
+  const handleTimeChange = (time: string) => {
+    const [hours, minutes] = time.split(":").map((v) => parseInt(v, 10));
+    const updated = new Date(selectedDate);
+    updated.setHours(hours || 0, minutes || 0, 0, 0);
+    onChange(toLocalInput(updated));
+  };
+
+  const formattedTime = format(selectedDate, "HH:mm");
+
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id} className="text-sm font-semibold">
+        {label}
+      </Label>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            variant="outline"
+            className="justify-between"
+            aria-label={label}
+          >
+            <div className="flex items-center gap-2">
+              <LuClock3 className="text-muted-foreground" />
+              <span className="truncate text-left">
+                {value ? formatDisplayDateTime(value) : label}
+              </span>
+            </div>
+            <LuChevronDown className="text-muted-foreground" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-4" align="start">
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Calendar
+              mode="single"
+              selected={selectedDate}
+              onSelect={handleDateSelect}
+              initialFocus
+              disabled={(date) =>
+                (min ? date < new Date(min) : false) ||
+                (max ? date > new Date(max) : false)
+              }
+            />
+            <div className="flex flex-col gap-2">
+              <Label className="text-xs text-muted-foreground">
+                {label}
+              </Label>
+              <Input
+                type="time"
+                value={formattedTime}
+                onChange={(e) => handleTimeChange(e.target.value)}
+              />
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+};
 
 function Exports() {
   const { t } = useTranslation(["views/exports"]);
@@ -58,6 +148,8 @@ function Exports() {
   const [playbackSource, setPlaybackSource] = useState<string>("recordings");
   const [eventId, setEventId] = useState<string>("");
   const [fallbackCommand, setFallbackCommand] = useState<string>("");
+  const [previewUrl, setPreviewUrl] = useState<string>("");
+  const previewRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
     document.title = t("documentTitle");
@@ -194,6 +286,54 @@ function Exports() {
     [t],
   );
 
+  const applyQuickRange = useCallback(
+    (type: "last24" | "today" | "sunrise" | "sunset" | "swap") => {
+      const now = new Date();
+      const baseDate = rangeEnd ? new Date(rangeEnd) : now;
+
+      switch (type) {
+        case "last24": {
+          const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          setRangeStart(toLocalInput(start));
+          setRangeEnd(toLocalInput(now));
+          break;
+        }
+        case "today": {
+          const start = new Date(now);
+          start.setHours(0, 0, 0, 0);
+          setRangeStart(toLocalInput(start));
+          setRangeEnd(toLocalInput(now));
+          break;
+        }
+        case "sunrise": {
+          const start = new Date(baseDate);
+          start.setHours(6, 0, 0, 0);
+          const end = new Date(baseDate);
+          end.setHours(18, 0, 0, 0);
+          setRangeStart(toLocalInput(start));
+          setRangeEnd(toLocalInput(end));
+          break;
+        }
+        case "sunset": {
+          const start = new Date(baseDate);
+          start.setHours(18, 0, 0, 0);
+          const end = new Date(baseDate);
+          end.setHours(23, 59, 0, 0);
+          setRangeStart(toLocalInput(start));
+          setRangeEnd(toLocalInput(end));
+          break;
+        }
+        case "swap": {
+          if (!rangeStart || !rangeEnd) return;
+          setRangeStart(rangeEnd);
+          setRangeEnd(rangeStart);
+          break;
+        }
+      }
+    },
+    [rangeEnd, rangeStart],
+  );
+
   const copyFallback = useCallback((command: string) => {
     navigator.clipboard?.writeText(command);
     toast.success(t("copiedCommand"));
@@ -270,6 +410,49 @@ function Exports() {
     t,
   ]);
 
+  const handlePreview = useCallback(() => {
+    if (!camera) {
+      toast.error(t("missingCamera"));
+      return;
+    }
+
+    const startSeconds = toEpochSeconds(rangeStart);
+    const endSeconds = toEpochSeconds(rangeEnd);
+
+    if (
+      Number.isNaN(startSeconds) ||
+      Number.isNaN(endSeconds) ||
+      endSeconds <= startSeconds
+    ) {
+      toast.error(t("invalidRange"));
+      return;
+    }
+
+    const playlistUrl = `${baseUrl}vod/${camera}/start/${startSeconds}/end/${endSeconds}/index.m3u8`;
+    setPreviewUrl(playlistUrl);
+  }, [camera, rangeEnd, rangeStart, t]);
+
+  useEffect(() => {
+    if (!previewUrl || !previewRef.current) return;
+
+    const video = previewRef.current;
+    let hls: Hls | undefined;
+
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = previewUrl;
+    } else if (Hls.isSupported()) {
+      hls = new Hls();
+      hls.loadSource(previewUrl);
+      hls.attachMedia(video);
+    }
+
+    return () => {
+      if (hls) {
+        hls.destroy();
+      }
+    };
+  }, [previewUrl]);
+
   // Keyboard Listener
 
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -313,22 +496,20 @@ function Exports() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-1">
-              <label className="text-sm font-semibold">{t("rangeStart")}</label>
-              <Input
-                type="datetime-local"
-                value={rangeStart}
-                onChange={(e) => setRangeStart(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-1">
-              <label className="text-sm font-semibold">{t("rangeEnd")}</label>
-              <Input
-                type="datetime-local"
-                value={rangeEnd}
-                onChange={(e) => setRangeEnd(e.target.value)}
-              />
-            </div>
+            <DateTimePicker
+              id="range-start"
+              label={t("rangeStart")}
+              value={rangeStart}
+              max={rangeEnd}
+              onChange={setRangeStart}
+            />
+            <DateTimePicker
+              id="range-end"
+              label={t("rangeEnd")}
+              value={rangeEnd}
+              min={rangeStart}
+              onChange={setRangeEnd}
+            />
             <div className="grid gap-2">
               <label className="text-sm font-semibold">
                 {t("detectedEventId")}
@@ -346,6 +527,44 @@ function Exports() {
               </div>
               <p className="text-xs text-muted-foreground">
                 {t("detectedEventHelp")}
+              </p>
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-semibold">{t("quickSelections")}</label>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <Button
+                  variant="outline"
+                  onClick={() => applyQuickRange("last24")}
+                >
+                  {t("last24Hours")}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => applyQuickRange("today")}
+                >
+                  {t("todayRange")}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => applyQuickRange("sunrise")}
+                >
+                  {t("sunriseSunset")}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => applyQuickRange("sunset")}
+                >
+                  {t("evening")}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => applyQuickRange("swap")}
+                >
+                  {t("swapRange")}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("quickSelectionHelp")}
               </p>
             </div>
           </div>
@@ -414,6 +633,9 @@ function Exports() {
             </div>
 
             <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={handlePreview} className="min-w-32">
+                {t("previewSelection")}
+              </Button>
               <Button onClick={handleStartExport} className="min-w-32">
                 {t("startExport")}
               </Button>
@@ -430,6 +652,18 @@ function Exports() {
               <div className="rounded-md bg-muted p-3 text-xs">
                 <p className="mb-1 font-semibold">{t("localCommandTitle")}</p>
                 <p className="break-all font-mono">{fallbackCommand}</p>
+              </div>
+            )}
+            {previewUrl && (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm font-semibold">{t("previewTitle")}</p>
+                <video
+                  ref={previewRef}
+                  className="w-full max-w-xl rounded-md border"
+                  controls
+                  playsInline
+                  onError={() => toast.error(t("previewFailed"))}
+                />
               </div>
             )}
           </div>
