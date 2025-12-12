@@ -10,13 +10,22 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
 import useKeyboardListener from "@/hooks/use-keyboard-listener";
 import { useSearchEffect } from "@/hooks/use-overlay-state";
 import { cn } from "@/lib/utils";
 import { DeleteClipType, Export } from "@/types/export";
+import { FrigateConfig } from "@/types/frigateConfig";
 import axios from "axios";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,13 +36,43 @@ import { LuFolderX } from "react-icons/lu";
 import { toast } from "sonner";
 import useSWR from "swr";
 
+const toLocalInput = (date: Date) =>
+  new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+
+const toEpochSeconds = (value: string) =>
+  value ? Math.round(new Date(value).getTime() / 1000) : NaN;
+
 function Exports() {
   const { t } = useTranslation(["views/exports"]);
   const { data: exports, mutate } = useSWR<Export[]>("exports");
+  const { data: config } = useSWR<FrigateConfig>("config");
+  const [camera, setCamera] = useState<string>();
+  const [rangeStart, setRangeStart] = useState<string>("");
+  const [rangeEnd, setRangeEnd] = useState<string>("");
+  const [exportName, setExportName] = useState<string>("");
+  const [playback, setPlayback] = useState<string>("1");
+  const [customPlayback, setCustomPlayback] = useState<string>("50");
+  const [playbackSource, setPlaybackSource] = useState<string>("recordings");
+  const [eventId, setEventId] = useState<string>("");
+  const [fallbackCommand, setFallbackCommand] = useState<string>("");
 
   useEffect(() => {
     document.title = t("documentTitle");
   }, [t]);
+
+  useEffect(() => {
+    if (config && !camera) {
+      setCamera(Object.keys(config.cameras)[0]);
+    }
+
+    const end = new Date();
+    const start = new Date(end.getTime() - 60 * 60 * 1000);
+
+    setRangeStart(toLocalInput(start));
+    setRangeEnd(toLocalInput(end));
+  }, [camera, config]);
 
   // Search
 
@@ -110,6 +149,126 @@ function Exports() {
     [mutate, t],
   );
 
+  const buildPlayback = useCallback(() => {
+    const multiplier =
+      playback === "custom" ? parseInt(customPlayback) : parseInt(playback);
+
+    if (!multiplier || multiplier <= 1) {
+      return { playbackValue: "realtime", multiplier: 1 };
+    }
+
+    return {
+      playbackValue: `timelapse_${multiplier}x`,
+      multiplier,
+    };
+  }, [customPlayback, playback]);
+
+  const loadEventRange = useCallback(
+    (id: string) => {
+      if (!id) {
+        return;
+      }
+
+      axios
+        .get(`events/${id}`)
+        .then((response) => {
+          const event = response.data;
+          if (!event?.start_time) {
+            toast.error(t("eventMissingTime"));
+            return;
+          }
+
+          const start = new Date(event.start_time * 1000);
+          const end = new Date(
+            (event.end_time ?? event.start_time + 60) * 1000,
+          );
+          if (event.camera) {
+            setCamera(event.camera);
+          }
+          setRangeStart(toLocalInput(start));
+          setRangeEnd(toLocalInput(end));
+        })
+        .catch(() => toast.error(t("eventLoadFailed")));
+    },
+    [t],
+  );
+
+  const copyFallback = useCallback((command: string) => {
+    navigator.clipboard?.writeText(command);
+    toast.success(t("copiedCommand"));
+  }, [t]);
+
+  const handleStartExport = useCallback(() => {
+    if (!camera) {
+      toast.error(t("missingCamera"));
+      return;
+    }
+
+    const startSeconds = toEpochSeconds(rangeStart);
+    const endSeconds = toEpochSeconds(rangeEnd);
+
+    if (
+      Number.isNaN(startSeconds) ||
+      Number.isNaN(endSeconds) ||
+      endSeconds <= startSeconds
+    ) {
+      toast.error(t("invalidRange"));
+      return;
+    }
+
+    const { playbackValue, multiplier } = buildPlayback();
+    const source = playbackSource === "preview" ? "preview" : "recordings";
+
+    setFallbackCommand("");
+
+    axios
+      .post(
+        `export/${camera}/start/${startSeconds}/end/${endSeconds}`,
+        {
+          playback: playbackValue,
+          source,
+          name: exportName,
+        },
+      )
+      .then((response) => {
+        if (response.status == 200) {
+          toast.success(t("exportStarted"), {
+            position: "top-center",
+          });
+          mutate();
+        }
+      })
+      .catch((error) => {
+        const errorMessage =
+          error.response?.data?.message ||
+          error.response?.data?.detail ||
+          "Unknown error";
+        toast.error(t("exportFailed", { errorMessage }), {
+          position: "top-center",
+        });
+
+        if (
+          playbackValue.startsWith("timelapse_") &&
+          (error.response?.status === 422 || error.response?.status === 400)
+        ) {
+          const playlistUrl = `${baseUrl}vod/${camera}/start/${startSeconds}/end/${endSeconds}/index.m3u8`;
+          const fallback =
+            `ffmpeg -hide_banner -y -protocol_whitelist file,http,tcp -i "${playlistUrl}" ` +
+            `-vf "setpts=PTS/${multiplier}" -r 30 -movflags +faststart ${camera}_${multiplier}x.mp4`;
+          setFallbackCommand(fallback);
+        }
+      });
+  }, [
+    buildPlayback,
+    camera,
+    exportName,
+    mutate,
+    playbackSource,
+    rangeEnd,
+    rangeStart,
+    t,
+  ]);
+
   // Keyboard Listener
 
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -118,6 +277,154 @@ function Exports() {
   return (
     <div className="flex size-full flex-col gap-2 overflow-hidden px-1 pt-2 md:p-2">
       <Toaster closeButton={true} />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("createExport")}</CardTitle>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3">
+            <div className="grid gap-1">
+              <label className="text-sm font-semibold">{t("camera")}</label>
+              <Select
+                value={camera}
+                onValueChange={(value) => setCamera(value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("camera")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {config &&
+                    Object.keys(config.cameras).map((cam) => (
+                      <SelectItem key={cam} value={cam}>
+                        {cam}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1">
+              <label className="text-sm font-semibold">{t("rangeStart")}</label>
+              <Input
+                type="datetime-local"
+                value={rangeStart}
+                onChange={(e) => setRangeStart(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1">
+              <label className="text-sm font-semibold">{t("rangeEnd")}</label>
+              <Input
+                type="datetime-local"
+                value={rangeEnd}
+                onChange={(e) => setRangeEnd(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-semibold">
+                {t("detectedEventId")}
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  className="flex-1"
+                  placeholder={t("detectedEventId")}
+                  value={eventId}
+                  onChange={(e) => setEventId(e.target.value)}
+                />
+                <Button variant="outline" onClick={() => loadEventRange(eventId)}>
+                  {t("loadEvent")}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("detectedEventHelp")}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            <div className="grid gap-1">
+              <label className="text-sm font-semibold">{t("playbackSpeed")}</label>
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                {["1", "5", "10", "25", "50", "100", "custom"].map(
+                  (speed) => (
+                    <Button
+                      key={speed}
+                      variant={playback === speed ? "select" : "outline"}
+                      onClick={() => setPlayback(speed)}
+                    >
+                      {speed === "custom" ? t("customSpeed") : `${speed}x`}
+                    </Button>
+                  ),
+                )}
+              </div>
+              {playback === "custom" && (
+                <div className="flex items-center gap-2">
+                  <Input
+                    className="w-32"
+                    type="number"
+                    min={1}
+                    max={999}
+                    value={customPlayback}
+                    onChange={(e) => setCustomPlayback(e.target.value)}
+                  />
+                  <span className="text-sm text-muted-foreground">x</span>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {t("timelapseHelp")}
+              </p>
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-sm font-semibold">{t("contentType")}</label>
+              <Select
+                value={playbackSource}
+                onValueChange={(value) => setPlaybackSource(value)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="recordings">{t("allVideo")}</SelectItem>
+                  <SelectItem value="preview">{t("allMotion")}</SelectItem>
+                  <SelectItem value="events">{t("detectedEventsOnly")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t("contentHelp")}
+              </p>
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-sm font-semibold">{t("exportName")}</label>
+              <Input
+                placeholder={t("exportNamePlaceholder")}
+                value={exportName}
+                onChange={(e) => setExportName(e.target.value)}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleStartExport} className="min-w-32">
+                {t("startExport")}
+              </Button>
+              {fallbackCommand && (
+                <Button
+                  variant="outline"
+                  onClick={() => copyFallback(fallbackCommand)}
+                >
+                  {t("copyFallback")}
+                </Button>
+              )}
+            </div>
+            {fallbackCommand && (
+              <div className="rounded-md bg-muted p-3 text-xs">
+                <p className="mb-1 font-semibold">{t("localCommandTitle")}</p>
+                <p className="break-all font-mono">{fallbackCommand}</p>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <AlertDialog
         open={deleteClip != undefined}

@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Annotated, Union
 
 from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
@@ -9,8 +9,13 @@ from frigate.record.export import (
 )
 
 
+PlaybackFactorType = Annotated[
+    str, Field(pattern=r"^(realtime|timelapse_[0-9]{1,3}x)$")
+]
+
+
 class ExportRecordingsBody(BaseModel):
-    playback: PlaybackFactorEnum = Field(
+    playback: PlaybackFactorType = Field(
         default=PlaybackFactorEnum.realtime, title="Playback factor"
     )
     source: PlaybackSourceEnum = Field(
