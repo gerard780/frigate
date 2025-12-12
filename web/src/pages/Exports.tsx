@@ -181,6 +181,83 @@ const DateTimePicker = ({ id, label, value, onChange, max, min }: DateTimePicker
   );
 };
 
+const ZIPCODE_LATITUDE = 38.212;
+const ZIPCODE_LONGITUDE = -85.223;
+
+const degToRad = (deg: number) => (deg * Math.PI) / 180;
+const radToDeg = (rad: number) => (rad * 180) / Math.PI;
+
+const getDayOfYear = (date: Date) => {
+  const start = new Date(date.getFullYear(), 0, 0);
+  return Math.floor((date.getTime() - start.getTime()) / 86400000);
+};
+
+const equationOfTime = (gamma: number) =>
+  229.18 *
+  (0.000075 +
+    0.001868 * Math.cos(gamma) -
+    0.032077 * Math.sin(gamma) -
+    0.014615 * Math.cos(2 * gamma) -
+    0.040849 * Math.sin(2 * gamma));
+
+const solarDeclination = (gamma: number) =>
+  0.006918 -
+  0.399912 * Math.cos(gamma) +
+  0.070257 * Math.sin(gamma) -
+  0.006758 * Math.cos(2 * gamma) +
+  0.000907 * Math.sin(2 * gamma) -
+  0.002697 * Math.cos(3 * gamma) +
+  0.00148 * Math.sin(3 * gamma);
+
+const hourAngle = (latitude: number, declination: number, sunrise: boolean) => {
+  const latRad = degToRad(latitude);
+  const ha =
+    Math.acos(
+      (Math.cos(degToRad(90.833)) /
+        (Math.cos(latRad) * Math.cos(declination))) -
+        Math.tan(latRad) * Math.tan(declination),
+    ) * (sunrise ? -1 : 1);
+  return ha;
+};
+
+const calculateSunEvent = (date: Date, sunrise: boolean) => {
+  if (Number.isNaN(date.getTime())) {
+    return new Date();
+  }
+
+  const day = getDayOfYear(date);
+  const gamma =
+    (2 * Math.PI * (day - 1 + (date.getHours() - 12) / 24)) / 365;
+
+  const eqTime = equationOfTime(gamma);
+  const solarDec = solarDeclination(gamma);
+  const ha = hourAngle(ZIPCODE_LATITUDE, solarDec, sunrise);
+
+  if (Number.isNaN(ha)) {
+    const fallback = new Date(date);
+    fallback.setHours(sunrise ? 6 : 18, 0, 0, 0);
+    return fallback;
+  }
+
+  const haDeg = radToDeg(ha);
+  const timeUTC = sunrise
+    ? 720 - 4 * (ZIPCODE_LONGITUDE + haDeg) - eqTime
+    : 720 - 4 * (ZIPCODE_LONGITUDE - haDeg) - eqTime;
+
+  const midnight = new Date(date);
+  midnight.setHours(0, 0, 0, 0);
+  const localMinutes = timeUTC - midnight.getTimezoneOffset();
+  return new Date(midnight.getTime() + localMinutes * 60000);
+};
+
+const getSunTimes = (date: Date) => {
+  const targetDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  const sunrise = calculateSunEvent(targetDate, true);
+  const sunset = calculateSunEvent(targetDate, false);
+
+  return { sunrise, sunset };
+};
+
 function Exports() {
   const { t } = useTranslation(["views/exports"]);
   const { data: exports, mutate } = useSWR<Export[]>("exports");
@@ -336,20 +413,54 @@ function Exports() {
   const applyQuickRange = useCallback(
     (type: "last24" | "today" | "sunrise" | "sunset" | "swap") => {
       const now = new Date();
-      const baseDate = rangeEnd ? new Date(rangeEnd) : now;
+      let baseDate = rangeEnd ? new Date(rangeEnd) : now;
+      if (Number.isNaN(baseDate.getTime())) {
+        baseDate = now;
+      }
 
-      const sunriseHour = 6;
-      const sunsetHour = 18;
+      const applySunWindow = (windowType: "sunrise" | "sunset") => {
+        const todayTimes = getSunTimes(baseDate);
+        const fallbackStart = new Date(baseDate);
+        const fallbackEnd = new Date(baseDate);
+        fallbackStart.setHours(6, 0, 0, 0);
+        fallbackEnd.setHours(18, 0, 0, 0);
 
-      const applySunWindow = (startHour: number, endHour: number) => {
-        const start = new Date(baseDate);
-        const end = new Date(baseDate);
-        start.setHours(startHour, 0, 0, 0);
-        end.setHours(endHour, 0, 0, 0);
+        let start =
+          windowType === "sunrise" ? todayTimes.sunrise : todayTimes.sunset;
+        let end =
+          windowType === "sunrise"
+            ? todayTimes.sunset
+            : endOfDay(new Date(baseDate));
+
+        if (!start || Number.isNaN(start.getTime())) {
+          start = windowType === "sunrise" ? fallbackStart : fallbackEnd;
+        }
+
+        if (!end || Number.isNaN(end.getTime())) {
+          end = windowType === "sunrise" ? fallbackEnd : endOfDay(baseDate);
+        }
 
         if (now < start) {
-          start.setDate(start.getDate() - 1);
-          end.setDate(end.getDate() - 1);
+          const previousDay = new Date(baseDate);
+          previousDay.setDate(previousDay.getDate() - 1);
+          const previousTimes = getSunTimes(previousDay);
+          start =
+            windowType === "sunrise"
+              ? previousTimes.sunrise
+              : previousTimes.sunset;
+          end =
+            windowType === "sunrise"
+              ? previousTimes.sunset
+              : endOfDay(previousDay);
+        }
+
+        if (end > now) {
+          end = new Date(now);
+        }
+
+        if (end <= start) {
+          const adjustedStart = new Date(end.getTime() - 60 * 1000);
+          start = adjustedStart;
         }
 
         setRangeStart(toLocalInput(start));
@@ -371,11 +482,11 @@ function Exports() {
           break;
         }
         case "sunrise": {
-          applySunWindow(sunriseHour, sunsetHour);
+          applySunWindow("sunrise");
           break;
         }
         case "sunset": {
-          applySunWindow(sunsetHour, 23);
+          applySunWindow("sunset");
           break;
         }
         case "swap": {
