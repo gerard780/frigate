@@ -36,6 +36,7 @@
   "previewSelection": "Preview selection",
   "previewTitle": "Realtime preview",
   "previewFailed": "Unable to load preview for that range.",
+  "previewTrimmed": "Preview limited to the first {{hours}} hours to avoid playback errors.",
   "eventMissingTime": "Could not read times for that event.",
   "eventLoadFailed": "Unable to load that event.",
   "copiedCommand": "Command copied",

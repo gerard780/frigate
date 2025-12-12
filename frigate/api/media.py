@@ -54,6 +54,8 @@ from frigate.util.time import get_dst_transitions
 
 logger = logging.getLogger(__name__)
 
+MAX_VOD_CLIPS = 5000
+
 router = APIRouter(tags=[Tags.media])
 
 
@@ -932,6 +934,21 @@ async def vod_ts(
                 "message": "No recordings found.",
             },
             status_code=404,
+        )
+
+    if len(durations) > MAX_VOD_CLIPS:
+        logger.error(
+            "VOD: requested %s clips for %s exceeds limit %s", 
+            len(durations),
+            camera_name,
+            MAX_VOD_CLIPS,
+        )
+        return JSONResponse(
+            content={
+                "success": False,
+                "message": "Requested range is too large to preview. Please shorten the selection.",
+            },
+            status_code=413,
         )
 
     hour_ago = datetime.now() - timedelta(hours=1)

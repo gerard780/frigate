@@ -46,6 +46,8 @@ const toLocalInput = (date: Date) =>
     .toISOString()
     .slice(0, 16);
 
+const PREVIEW_MAX_SECONDS = 6 * 60 * 60; // 6 hours
+
 const toEpochSeconds = (value: string) =>
   value ? Math.round(new Date(value).getTime() / 1000) : NaN;
 
@@ -463,11 +465,21 @@ function Exports() {
             ? yesterdayTimes.sunset
             : fallbackEvening;
 
-          // Prefer today if sunset already happened; otherwise use yesterday.
-          const useYesterday = todaySunset > now;
-          const start = useYesterday ? yesterdaySunrise : todaySunrise;
-          const end = clampToNow(useYesterday ? yesterdaySunset : todaySunset);
-          return { start, end };
+          // If we're before today's sunrise, use yesterday's daylight window.
+          if (now < todaySunrise) {
+            return {
+              start: yesterdaySunrise,
+              end: clampToNow(yesterdaySunset),
+            };
+          }
+
+          // If today has already ended, use today's sunrise to sunset window.
+          if (now >= todaySunset) {
+            return { start: todaySunrise, end: clampToNow(todaySunset) };
+          }
+
+          // Otherwise we're between sunrise and sunset today.
+          return { start: todaySunrise, end: clampToNow(todaySunset) };
         };
 
         const pickNightWindow = () => {
@@ -484,19 +496,18 @@ function Exports() {
             ? todayTimes.sunrise
             : fallbackMorning;
 
-          // If we are before today's sunset, use last night's window.
-          if (now < todaySunset) {
-            return {
-              start: yesterdaySunset,
-              end: clampToNow(todaySunrise),
-            };
+          // Before sunrise, use last night's sunset through today's sunrise.
+          if (now < todaySunrise) {
+            return { start: yesterdaySunset, end: clampToNow(todaySunrise) };
           }
 
-          // Otherwise, use tonight through next sunrise (clamped to now if in-progress).
-          return {
-            start: todaySunset,
-            end: clampToNow(tomorrowSunrise),
-          };
+          // During the day, use the most recent overnight span.
+          if (now < todaySunset) {
+            return { start: yesterdaySunset, end: clampToNow(todaySunrise) };
+          }
+
+          // After sunset, use tonight through next sunrise.
+          return { start: todaySunset, end: clampToNow(tomorrowSunrise) };
         };
 
         const { start, end } =
@@ -656,7 +667,20 @@ function Exports() {
       return;
     }
 
-    const playlistUrl = `${baseUrl}vod/${camera}/start/${startSeconds}/end/${endSeconds}/index.m3u8`;
+    const duration = endSeconds - startSeconds;
+    const cappedEnd =
+      duration > PREVIEW_MAX_SECONDS
+        ? startSeconds + PREVIEW_MAX_SECONDS
+        : endSeconds;
+
+    if (duration > PREVIEW_MAX_SECONDS) {
+      toast.info(
+        t("previewTrimmed", { hours: PREVIEW_MAX_SECONDS / 3600 }),
+        { position: "top-center" },
+      );
+    }
+
+    const playlistUrl = `${baseUrl}vod/${camera}/start/${startSeconds}/end/${cappedEnd}/index.m3u8`;
     setPreviewUrl(playlistUrl);
   }, [camera, rangeEnd, rangeStart, t]);
 
