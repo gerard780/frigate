@@ -5,6 +5,8 @@
   "deleteExport": "Delete Export",
   "deleteExport.desc": "Are you sure you want to delete {{exportName}}?",
   "createExport": "Build new export",
+  "showBuilder": "Show export builder",
+  "hideBuilder": "Hide export builder",
   "camera": "Camera",
   "rangeStart": "Range start",
   "rangeEnd": "Range end",

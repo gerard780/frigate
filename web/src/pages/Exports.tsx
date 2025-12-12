@@ -48,6 +48,7 @@ function Exports() {
   const { t } = useTranslation(["views/exports"]);
   const { data: exports, mutate } = useSWR<Export[]>("exports");
   const { data: config } = useSWR<FrigateConfig>("config");
+  const [showBuilder, setShowBuilder] = useState<boolean>(!isMobile);
   const [camera, setCamera] = useState<string>();
   const [rangeStart, setRangeStart] = useState<string>("");
   const [rangeEnd, setRangeEnd] = useState<string>("");
@@ -279,13 +280,22 @@ function Exports() {
       <Toaster closeButton={true} />
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t("createExport")}</CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowBuilder((prev) => !prev)}
+            className="w-full sm:w-auto"
+          >
+            {showBuilder ? t("hideBuilder") : t("showBuilder")}
+          </Button>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="grid grid-cols-1 gap-3">
-            <div className="grid gap-1">
-              <label className="text-sm font-semibold">{t("camera")}</label>
+        {showBuilder && (
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3">
+              <div className="grid gap-1">
+                <label className="text-sm font-semibold">{t("camera")}</label>
               <Select
                 value={camera}
                 onValueChange={(value) => setCamera(value)}
@@ -423,7 +433,8 @@ function Exports() {
               </div>
             )}
           </div>
-        </CardContent>
+          </CardContent>
+        )}
       </Card>
 
       <AlertDialog
