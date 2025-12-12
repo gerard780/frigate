@@ -37,7 +37,7 @@ import { LuChevronDown, LuClock3, LuFolderX } from "react-icons/lu";
 import { isMobile } from "react-device-detect";
 import { useTranslation } from "react-i18next";
 
-import { format } from "date-fns";
+import { endOfDay, format, startOfDay } from "date-fns";
 import { toast } from "sonner";
 import useSWR from "swr";
 
@@ -66,6 +66,8 @@ type DateTimePickerProps = {
 
 const DateTimePicker = ({ id, label, value, onChange, max, min }: DateTimePickerProps) => {
   const selectedDate = value ? new Date(value) : new Date();
+  const minDate = min ? startOfDay(new Date(min)) : undefined;
+  const maxDate = max ? endOfDay(new Date(max)) : undefined;
 
   const handleDateSelect = (date?: Date) => {
     if (!date) return;
@@ -81,55 +83,100 @@ const DateTimePicker = ({ id, label, value, onChange, max, min }: DateTimePicker
     onChange(toLocalInput(updated));
   };
 
-  const formattedTime = format(selectedDate, "HH:mm");
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  const minutes = Array.from({ length: 60 }, (_, i) => i);
 
   return (
     <div className="grid gap-2">
       <Label htmlFor={id} className="text-sm font-semibold">
         {label}
       </Label>
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
             id={id}
-            variant="outline"
-            className="justify-between"
+            type="datetime-local"
+            value={value}
+            min={min}
+            max={max}
+            onChange={(e) => onChange(e.target.value)}
             aria-label={label}
-          >
-            <div className="flex items-center gap-2">
-              <LuClock3 className="text-muted-foreground" />
-              <span className="truncate text-left">
-                {value ? formatDisplayDateTime(value) : label}
-              </span>
-            </div>
-            <LuChevronDown className="text-muted-foreground" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-auto p-4" align="start">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              onSelect={handleDateSelect}
-              initialFocus
-              disabled={(date) =>
-                (min ? date < new Date(min) : false) ||
-                (max ? date > new Date(max) : false)
-              }
-            />
-            <div className="flex flex-col gap-2">
-              <Label className="text-xs text-muted-foreground">
-                {label}
-              </Label>
-              <Input
-                type="time"
-                value={formattedTime}
-                onChange={(e) => handleTimeChange(e.target.value)}
-              />
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
+            className="w-full"
+          />
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="justify-between sm:w-52"
+                aria-label={label}
+              >
+                <div className="flex items-center gap-2">
+                  <LuClock3 className="text-muted-foreground" />
+                  <span className="truncate text-left">
+                    {value ? formatDisplayDateTime(value) : label}
+                  </span>
+                </div>
+                <LuChevronDown className="text-muted-foreground" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-4" align="start">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={handleDateSelect}
+                  initialFocus
+                  disabled={(date) =>
+                    (minDate ? date < minDate : false) ||
+                    (maxDate ? date > maxDate : false)
+                  }
+                />
+                <div className="flex flex-col gap-2">
+                  <Label className="text-xs text-muted-foreground">
+                    {label}
+                  </Label>
+                  <div className="flex gap-2">
+                    <Select
+                      value={String(selectedDate.getHours())}
+                      onValueChange={(value) =>
+                        handleTimeChange(`${value.padStart(2, "0")}:${format(selectedDate, "mm")}`)
+                      }
+                    >
+                      <SelectTrigger className="w-20">
+                        <SelectValue aria-label="Hour" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {hours.map((hour) => (
+                          <SelectItem key={hour} value={String(hour)}>
+                            {hour.toString().padStart(2, "0")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={String(selectedDate.getMinutes())}
+                      onValueChange={(value) =>
+                        handleTimeChange(`${format(selectedDate, "HH")}:${value.padStart(2, "0")}`)
+                      }
+                    >
+                      <SelectTrigger className="w-20">
+                        <SelectValue aria-label="Minutes" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {minutes.map((minute) => (
+                          <SelectItem key={minute} value={String(minute)}>
+                            {minute.toString().padStart(2, "0")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
     </div>
   );
 };
@@ -291,6 +338,24 @@ function Exports() {
       const now = new Date();
       const baseDate = rangeEnd ? new Date(rangeEnd) : now;
 
+      const sunriseHour = 6;
+      const sunsetHour = 18;
+
+      const applySunWindow = (startHour: number, endHour: number) => {
+        const start = new Date(baseDate);
+        const end = new Date(baseDate);
+        start.setHours(startHour, 0, 0, 0);
+        end.setHours(endHour, 0, 0, 0);
+
+        if (now < start) {
+          start.setDate(start.getDate() - 1);
+          end.setDate(end.getDate() - 1);
+        }
+
+        setRangeStart(toLocalInput(start));
+        setRangeEnd(toLocalInput(end));
+      };
+
       switch (type) {
         case "last24": {
           const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -306,21 +371,11 @@ function Exports() {
           break;
         }
         case "sunrise": {
-          const start = new Date(baseDate);
-          start.setHours(6, 0, 0, 0);
-          const end = new Date(baseDate);
-          end.setHours(18, 0, 0, 0);
-          setRangeStart(toLocalInput(start));
-          setRangeEnd(toLocalInput(end));
+          applySunWindow(sunriseHour, sunsetHour);
           break;
         }
         case "sunset": {
-          const start = new Date(baseDate);
-          start.setHours(18, 0, 0, 0);
-          const end = new Date(baseDate);
-          end.setHours(23, 59, 0, 0);
-          setRangeStart(toLocalInput(start));
-          setRangeEnd(toLocalInput(end));
+          applySunWindow(sunsetHour, 23);
           break;
         }
         case "swap": {
@@ -354,6 +409,12 @@ function Exports() {
       endSeconds <= startSeconds
     ) {
       toast.error(t("invalidRange"));
+      return;
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (startSeconds > nowSeconds || endSeconds > nowSeconds) {
+      toast.error(t("rangeInFuture"));
       return;
     }
 
@@ -425,6 +486,13 @@ function Exports() {
       endSeconds <= startSeconds
     ) {
       toast.error(t("invalidRange"));
+      return;
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (startSeconds > nowSeconds || endSeconds > nowSeconds) {
+      toast.error(t("rangeInFuture"));
+      setPreviewUrl("");
       return;
     }
 

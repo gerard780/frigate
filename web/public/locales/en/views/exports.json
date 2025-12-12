@@ -41,6 +41,7 @@
   "copiedCommand": "Command copied",
   "missingCamera": "Select a camera to export",
   "invalidRange": "Enter a valid start and end time (end must be after start).",
+  "rangeInFuture": "Pick a time range that has already occurred.",
   "exportStarted": "Export started on server",
   "exportFailed": "Export failed: {{errorMessage}}",
   "editExport": {
