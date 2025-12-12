@@ -17,7 +17,7 @@
   "last24Hours": "Last 24 hours",
   "todayRange": "Today",
   "sunriseSunset": "Sunrise to sunset",
-  "evening": "Evening",
+  "sunsetSunrise": "Sunset to sunrise",
   "swapRange": "Swap start/end",
   "quickSelectionHelp": "Apply common ranges or flip your current selection.",
   "playbackSpeed": "Playback speed",

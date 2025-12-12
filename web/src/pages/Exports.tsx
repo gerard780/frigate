@@ -260,6 +260,9 @@ const getSunTimes = (date: Date) => {
 
 const clampToNow = (value: Date) => new Date(Math.min(value.getTime(), Date.now()));
 
+const isValidDate = (date?: Date | null) =>
+  !!date && !Number.isNaN(date.getTime());
+
 function Exports() {
   const { t } = useTranslation(["views/exports"]);
   const { data: exports, mutate } = useSWR<Export[]>("exports");
@@ -414,71 +417,98 @@ function Exports() {
   );
 
   const applyQuickRange = useCallback(
-    (type: "last24" | "today" | "sunrise" | "sunset" | "swap") => {
+    (
+      type:
+        | "last24"
+        | "today"
+        | "sunrise-day"
+        | "sunset-night"
+        | "swap",
+    ) => {
       const now = new Date();
-      let baseDate = rangeEnd ? new Date(rangeEnd) : now;
-      if (Number.isNaN(baseDate.getTime()) || baseDate > now) {
-        baseDate = now;
-      }
+      const baseDate = (() => {
+        const candidate = rangeEnd ? new Date(rangeEnd) : now;
+        if (Number.isNaN(candidate.getTime()) || candidate > now) return now;
+        return candidate;
+      })();
 
-      const applySunWindow = (windowType: "sunrise" | "sunset") => {
-        const todayTimes = getSunTimes(baseDate);
-        const previousDay = new Date(baseDate);
-        previousDay.setDate(previousDay.getDate() - 1);
-        const previousTimes = getSunTimes(previousDay);
+      const applySunWindow = (windowType: "sunrise-day" | "sunset-night") => {
+        const today = new Date(baseDate);
+        const tomorrow = new Date(today);
+        const yesterday = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        yesterday.setDate(yesterday.getDate() - 1);
 
-        const fallbackStart = new Date(baseDate);
-        const fallbackEnd = new Date(baseDate);
-        fallbackStart.setHours(6, 0, 0, 0);
-        fallbackEnd.setHours(18, 0, 0, 0);
+        const todayTimes = getSunTimes(today);
+        const tomorrowTimes = getSunTimes(tomorrow);
+        const yesterdayTimes = getSunTimes(yesterday);
 
-        const startToday =
-          windowType === "sunrise" ? todayTimes.sunrise : todayTimes.sunset;
-        const startYesterday =
-          windowType === "sunrise"
-            ? previousTimes.sunrise
-            : previousTimes.sunset;
+        const fallbackMorning = new Date(today);
+        fallbackMorning.setHours(6, 0, 0, 0);
+        const fallbackEvening = new Date(today);
+        fallbackEvening.setHours(18, 0, 0, 0);
 
-        const startTodayValid =
-          !!startToday && !Number.isNaN(startToday.getTime());
-        const useYesterday = !startTodayValid || now < (startToday ?? now);
+        const pickDayWindow = () => {
+          const todaySunrise = isValidDate(todayTimes.sunrise)
+            ? todayTimes.sunrise
+            : fallbackMorning;
+          const todaySunset = isValidDate(todayTimes.sunset)
+            ? todayTimes.sunset
+            : fallbackEvening;
 
-        let startCandidate = useYesterday ? startYesterday : startToday;
-        if (!startCandidate || Number.isNaN(startCandidate.getTime())) {
-          startCandidate = useYesterday
-            ? windowType === "sunrise"
-              ? previousTimes.sunrise
-              : previousTimes.sunset
-            : windowType === "sunrise"
-              ? todayTimes.sunrise
-              : todayTimes.sunset;
-        }
-        if (!startCandidate || Number.isNaN(startCandidate.getTime())) {
-          startCandidate = windowType === "sunrise" ? fallbackStart : fallbackEnd;
-        }
+          const yesterdaySunrise = isValidDate(yesterdayTimes.sunrise)
+            ? yesterdayTimes.sunrise
+            : fallbackMorning;
+          const yesterdaySunset = isValidDate(yesterdayTimes.sunset)
+            ? yesterdayTimes.sunset
+            : fallbackEvening;
 
-        let endCandidate: Date;
-        if (windowType === "sunrise") {
-          const endToday = todayTimes.sunset ?? fallbackEnd;
-          const endYesterday = previousTimes.sunset ?? fallbackEnd;
-          endCandidate = useYesterday ? endYesterday : endToday;
-        } else {
-          endCandidate = new Date(now);
-        }
+          // Prefer today if sunset already happened; otherwise use yesterday.
+          const useYesterday = todaySunset > now;
+          const start = useYesterday ? yesterdaySunrise : todaySunrise;
+          const end = clampToNow(useYesterday ? yesterdaySunset : todaySunset);
+          return { start, end };
+        };
 
-        const start = startCandidate;
-        const end = clampToNow(endCandidate);
+        const pickNightWindow = () => {
+          const todaySunset = isValidDate(todayTimes.sunset)
+            ? todayTimes.sunset
+            : fallbackEvening;
+          const tomorrowSunrise = isValidDate(tomorrowTimes.sunrise)
+            ? tomorrowTimes.sunrise
+            : fallbackMorning;
+          const yesterdaySunset = isValidDate(yesterdayTimes.sunset)
+            ? yesterdayTimes.sunset
+            : fallbackEvening;
+          const todaySunrise = isValidDate(todayTimes.sunrise)
+            ? todayTimes.sunrise
+            : fallbackMorning;
 
-        if (!start || Number.isNaN(start.getTime())) {
-          setRangeStart("");
-          setRangeEnd("");
-          return;
-        }
+          // If we are before today's sunset, use last night's window.
+          if (now < todaySunset) {
+            return {
+              start: yesterdaySunset,
+              end: clampToNow(todaySunrise),
+            };
+          }
 
-        if (end <= start) {
-          const adjustedEnd = new Date(start.getTime() + 60 * 1000);
-          setRangeStart(toLocalInput(start));
-          setRangeEnd(toLocalInput(clampToNow(adjustedEnd)));
+          // Otherwise, use tonight through next sunrise (clamped to now if in-progress).
+          return {
+            start: todaySunset,
+            end: clampToNow(tomorrowSunrise),
+          };
+        };
+
+        const { start, end } =
+          windowType === "sunrise-day" ? pickDayWindow() : pickNightWindow();
+
+        if (!isValidDate(start) || !isValidDate(end) || end <= start) {
+          const startFallback = windowType === "sunrise-day"
+            ? new Date(now.getTime() - 60 * 60 * 1000)
+            : new Date(now.getTime() - 12 * 60 * 60 * 1000);
+          const endFallback = clampToNow(now);
+          setRangeStart(toLocalInput(startFallback));
+          setRangeEnd(toLocalInput(endFallback));
           return;
         }
 
@@ -500,12 +530,12 @@ function Exports() {
           setRangeEnd(toLocalInput(now));
           break;
         }
-        case "sunrise": {
-          applySunWindow("sunrise");
+        case "sunrise-day": {
+          applySunWindow("sunrise-day");
           break;
         }
-        case "sunset": {
-          applySunWindow("sunset");
+        case "sunset-night": {
+          applySunWindow("sunset-night");
           break;
         }
         case "swap": {
@@ -745,15 +775,15 @@ function Exports() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => applyQuickRange("sunrise")}
+                  onClick={() => applyQuickRange("sunrise-day")}
                 >
                   {t("sunriseSunset")}
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => applyQuickRange("sunset")}
+                  onClick={() => applyQuickRange("sunset-night")}
                 >
-                  {t("evening")}
+                  {t("sunsetSunrise")}
                 </Button>
                 <Button
                   variant="outline"
