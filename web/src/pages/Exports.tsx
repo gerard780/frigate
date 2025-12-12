@@ -258,6 +258,8 @@ const getSunTimes = (date: Date) => {
   return { sunrise, sunset };
 };
 
+const clampToNow = (value: Date) => new Date(Math.min(value.getTime(), Date.now()));
+
 function Exports() {
   const { t } = useTranslation(["views/exports"]);
   const { data: exports, mutate } = useSWR<Export[]>("exports");
@@ -274,6 +276,7 @@ function Exports() {
   const [fallbackCommand, setFallbackCommand] = useState<string>("");
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const previewRef = useRef<HTMLVideoElement | null>(null);
+  const nowLimit = useMemo(() => toLocalInput(new Date()), []);
 
   useEffect(() => {
     document.title = t("documentTitle");
@@ -414,53 +417,69 @@ function Exports() {
     (type: "last24" | "today" | "sunrise" | "sunset" | "swap") => {
       const now = new Date();
       let baseDate = rangeEnd ? new Date(rangeEnd) : now;
-      if (Number.isNaN(baseDate.getTime())) {
+      if (Number.isNaN(baseDate.getTime()) || baseDate > now) {
         baseDate = now;
       }
 
       const applySunWindow = (windowType: "sunrise" | "sunset") => {
         const todayTimes = getSunTimes(baseDate);
+        const previousDay = new Date(baseDate);
+        previousDay.setDate(previousDay.getDate() - 1);
+        const previousTimes = getSunTimes(previousDay);
+
         const fallbackStart = new Date(baseDate);
         const fallbackEnd = new Date(baseDate);
         fallbackStart.setHours(6, 0, 0, 0);
         fallbackEnd.setHours(18, 0, 0, 0);
 
-        let start =
+        const startToday =
           windowType === "sunrise" ? todayTimes.sunrise : todayTimes.sunset;
-        let end =
+        const startYesterday =
           windowType === "sunrise"
-            ? todayTimes.sunset
-            : endOfDay(new Date(baseDate));
+            ? previousTimes.sunrise
+            : previousTimes.sunset;
+
+        const startTodayValid =
+          !!startToday && !Number.isNaN(startToday.getTime());
+        const useYesterday = !startTodayValid || now < (startToday ?? now);
+
+        let startCandidate = useYesterday ? startYesterday : startToday;
+        if (!startCandidate || Number.isNaN(startCandidate.getTime())) {
+          startCandidate = useYesterday
+            ? windowType === "sunrise"
+              ? previousTimes.sunrise
+              : previousTimes.sunset
+            : windowType === "sunrise"
+              ? todayTimes.sunrise
+              : todayTimes.sunset;
+        }
+        if (!startCandidate || Number.isNaN(startCandidate.getTime())) {
+          startCandidate = windowType === "sunrise" ? fallbackStart : fallbackEnd;
+        }
+
+        let endCandidate: Date;
+        if (windowType === "sunrise") {
+          const endToday = todayTimes.sunset ?? fallbackEnd;
+          const endYesterday = previousTimes.sunset ?? fallbackEnd;
+          endCandidate = useYesterday ? endYesterday : endToday;
+        } else {
+          endCandidate = new Date(now);
+        }
+
+        const start = startCandidate;
+        const end = clampToNow(endCandidate);
 
         if (!start || Number.isNaN(start.getTime())) {
-          start = windowType === "sunrise" ? fallbackStart : fallbackEnd;
-        }
-
-        if (!end || Number.isNaN(end.getTime())) {
-          end = windowType === "sunrise" ? fallbackEnd : endOfDay(baseDate);
-        }
-
-        if (now < start) {
-          const previousDay = new Date(baseDate);
-          previousDay.setDate(previousDay.getDate() - 1);
-          const previousTimes = getSunTimes(previousDay);
-          start =
-            windowType === "sunrise"
-              ? previousTimes.sunrise
-              : previousTimes.sunset;
-          end =
-            windowType === "sunrise"
-              ? previousTimes.sunset
-              : endOfDay(previousDay);
-        }
-
-        if (end > now) {
-          end = new Date(now);
+          setRangeStart("");
+          setRangeEnd("");
+          return;
         }
 
         if (end <= start) {
-          const adjustedStart = new Date(end.getTime() - 60 * 1000);
-          start = adjustedStart;
+          const adjustedEnd = new Date(start.getTime() + 60 * 1000);
+          setRangeStart(toLocalInput(start));
+          setRangeEnd(toLocalInput(clampToNow(adjustedEnd)));
+          return;
         }
 
         setRangeStart(toLocalInput(start));
@@ -679,7 +698,7 @@ function Exports() {
               id="range-start"
               label={t("rangeStart")}
               value={rangeStart}
-              max={rangeEnd}
+              max={rangeEnd || nowLimit}
               onChange={setRangeStart}
             />
             <DateTimePicker
@@ -687,6 +706,7 @@ function Exports() {
               label={t("rangeEnd")}
               value={rangeEnd}
               min={rangeStart}
+              max={nowLimit}
               onChange={setRangeEnd}
             />
             <div className="grid gap-2">
