@@ -124,18 +124,21 @@ Footage can be exported from Frigate by right-clicking (desktop) or long pressin
 
 ### Time-lapse export
 
-Time lapse exporting is available only via the [HTTP API](../integrations/api/export-recording-export-camera-name-start-start-time-end-end-time-post.api.mdx).
+Time lapse exporting is available via the Web UI and the [HTTP API](../integrations/api/export-recording-export-camera-name-start-start-time-end-end-time-post.api.mdx).
 
-When exporting a time-lapse the default speed-up is 25x with 30 FPS. This means that every 25 seconds of (real-time) recording is condensed into 1 second of time-lapse video (always without audio) with a smoothness of 30 FPS.
+When exporting a time-lapse the default speed-up is 25x with 30 FPS. This means that every 25 seconds of (real-time) recording is condensed into 1 second of time-lapse video (always without audio) with a smoothness of 30 FPS. Time-lapse exports can now be requested at 10x, 25x, 50x, or 100x speed through the API or Web UI. The frame rate used for these exports defaults to `record.export.timelapse_fps`.
 
-To configure the speed-up factor, the frame rate and further custom settings, the configuration parameter `timelapse_args` can be used. The below configuration example would change the time-lapse speed to 60x (for fitting 1 hour of recording into 1 minute of time-lapse) with 25 FPS:
+To configure the speed-up factor, the frame rate and further custom settings, the configuration parameter `timelapse_args` can be used. The default template supports placeholders for `{speed}` and `{fps}` so it can adapt to the requested time-lapse speed:
 
 ```yaml
 record:
   enabled: True
   export:
-    timelapse_args: "-vf setpts=PTS/60 -r 25"
+    timelapse_fps: 25
+    timelapse_args: "-vf setpts=PTS/{speed} -r {fps}"
 ```
+
+The example above would produce a 50x export at 25 FPS when the 50x option is selected, resulting in `-vf setpts=PTS/50 -r 25` being passed to ffmpeg.
 
 :::tip
 

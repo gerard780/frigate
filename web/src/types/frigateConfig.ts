@@ -189,6 +189,7 @@ export interface CameraConfig {
     expire_interval: number;
     export: {
       timelapse_args: string;
+      timelapse_fps: number;
     };
     preview: {
       quality: string;
@@ -534,6 +535,7 @@ export interface FrigateConfig {
     expire_interval: number;
     export: {
       timelapse_args: string;
+      timelapse_fps: number;
     };
     preview: {
       quality: string;
