@@ -34,6 +34,7 @@ from frigate.record.export import (
     PlaybackFactorEnum,
     PlaybackSourceEnum,
     RecordingExporter,
+    resolve_playback_factor,
 )
 from frigate.util.time import is_current_hour
 
@@ -88,7 +89,7 @@ def export_recording(
             status_code=404,
         )
 
-    playback_factor = body.playback
+    playback_factor = resolve_playback_factor(body.playback)
     playback_source = body.source
     friendly_name = body.name
     existing_image = sanitize_filepath(body.image_path) if body.image_path else None
@@ -151,11 +152,7 @@ def export_recording(
         existing_image,
         int(start_time),
         int(end_time),
-        (
-            PlaybackFactorEnum[playback_factor]
-            if playback_factor in PlaybackFactorEnum.__members__.values()
-            else PlaybackFactorEnum.realtime
-        ),
+        playback_factor,
         (
             PlaybackSourceEnum[playback_source]
             if playback_source in PlaybackSourceEnum.__members__.values()

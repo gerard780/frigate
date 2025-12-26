@@ -4,6 +4,7 @@ import datetime
 import logging
 import os
 import random
+import re
 import shutil
 import string
 import subprocess as sp
@@ -45,6 +46,37 @@ class PlaybackFactorEnum(str, Enum):
     timelapse_25x = "timelapse_25x"
 
 
+TIMELAPSE_PATTERN = re.compile(r"timelapse_(?P<factor>[0-9]{1,3})x", re.IGNORECASE)
+
+
+def _parse_timelapse_factor(playback_factor: str) -> Optional[int]:
+    if playback_factor == PlaybackFactorEnum.realtime:
+        return None
+
+    match = TIMELAPSE_PATTERN.fullmatch(playback_factor)
+    if not match:
+        return None
+
+    factor = int(match.group("factor"))
+    if factor < 1 or factor > 999:
+        return None
+
+    return factor
+
+
+def resolve_playback_factor(playback_factor: str) -> str:
+    """Normalize playback factor strings and fallback to realtime when invalid."""
+
+    if playback_factor == PlaybackFactorEnum.realtime:
+        return PlaybackFactorEnum.realtime
+
+    factor = _parse_timelapse_factor(playback_factor)
+    if factor:
+        return f"timelapse_{factor}x"
+
+    return PlaybackFactorEnum.realtime
+
+
 class PlaybackSourceEnum(str, Enum):
     recordings = "recordings"
     preview = "preview"
@@ -62,7 +94,7 @@ class RecordingExporter(threading.Thread):
         image: Optional[str],
         start_time: int,
         end_time: int,
-        playback_factor: PlaybackFactorEnum,
+        playback_factor: str,
         playback_source: PlaybackSourceEnum,
     ) -> None:
         super().__init__()
@@ -179,6 +211,15 @@ class RecordingExporter(threading.Thread):
 
         return thumb_path
 
+    def _get_timelapse_args(self, factor: int) -> str:
+        """Generate timelapse encoding arguments for the requested speed."""
+
+        if factor == 25:
+            return self.config.cameras[self.camera].record.export.timelapse_args
+
+        setpts_value = round(1 / factor, 5)
+        return f"-vf setpts={setpts_value}*PTS -r 30"
+
     def get_record_export_command(self, video_path: str) -> list[str]:
         if (self.end_time - self.start_time) <= MAX_PLAYLIST_SECONDS:
             playlist_lines = f"http://127.0.0.1:5000/vod/{self.camera}/start/{self.start_time}/end/{self.end_time}/index.m3u8"
@@ -218,17 +259,19 @@ class RecordingExporter(threading.Thread):
 
             ffmpeg_input = "-y -protocol_whitelist pipe,file,http,tcp -f concat -safe 0 -i /dev/stdin"
 
-        if self.playback_factor == PlaybackFactorEnum.realtime:
+        timelapse_factor = _parse_timelapse_factor(self.playback_factor)
+
+        if timelapse_factor is None:
             ffmpeg_cmd = (
                 f"{self.config.ffmpeg.ffmpeg_path} -hide_banner {ffmpeg_input} -c copy -movflags +faststart"
             ).split(" ")
-        elif self.playback_factor == PlaybackFactorEnum.timelapse_25x:
+        else:
             ffmpeg_cmd = (
                 parse_preset_hardware_acceleration_encode(
                     self.config.ffmpeg.ffmpeg_path,
                     self.config.ffmpeg.hwaccel_args,
                     f"-an {ffmpeg_input}",
-                    f"{self.config.cameras[self.camera].record.export.timelapse_args} -movflags +faststart",
+                    f"{self._get_timelapse_args(timelapse_factor)} -movflags +faststart",
                     EncodeTypeEnum.timelapse,
                 )
             ).split(" ")
@@ -309,17 +352,19 @@ class RecordingExporter(threading.Thread):
             "-y -protocol_whitelist pipe,file,tcp -f concat -safe 0 -i /dev/stdin"
         )
 
-        if self.playback_factor == PlaybackFactorEnum.realtime:
+        timelapse_factor = _parse_timelapse_factor(self.playback_factor)
+
+        if timelapse_factor is None:
             ffmpeg_cmd = (
                 f"{self.config.ffmpeg.ffmpeg_path} -hide_banner {ffmpeg_input} {codec} -movflags +faststart {video_path}"
             ).split(" ")
-        elif self.playback_factor == PlaybackFactorEnum.timelapse_25x:
+        else:
             ffmpeg_cmd = (
                 parse_preset_hardware_acceleration_encode(
                     self.config.ffmpeg.ffmpeg_path,
                     self.config.ffmpeg.hwaccel_args,
                     f"{TIMELAPSE_DATA_INPUT_ARGS} {ffmpeg_input}",
-                    f"{self.config.cameras[self.camera].record.export.timelapse_args} -movflags +faststart {video_path}",
+                    f"{self._get_timelapse_args(timelapse_factor)} -movflags +faststart {video_path}",
                     EncodeTypeEnum.timelapse,
                 )
             ).split(" ")
